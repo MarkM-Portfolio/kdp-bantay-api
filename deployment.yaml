@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: bantay-api
+  name: bantay-api
+  namespace: dev
+spec:
+  selector:
+    matchLabels:
+      app: bantay-api
+  template:
+    metadata:
+      labels:
+        app: bantay-api
+    spec:
+      containers:
+        - envFrom:
+          - configMapRef:
+              name: configmap
+          - secretRef:
+              name: secrets
+          image: 137071197966.dkr.ecr.ap-southeast-1.amazonaws.com/dev-bantay-api:latest
+          imagePullPolicy: IfNotPresent
+          name: bantay-api
+          ports:
+            - containerPort: 5000

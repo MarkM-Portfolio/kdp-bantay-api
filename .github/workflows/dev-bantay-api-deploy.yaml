@@ -1,0 +1,92 @@
+name: dev-bantay-api-deploy
+on:
+  workflow_dispatch:
+    inputs:
+      namespace:
+        description: "Namespace to deploy (e.g. dev, staging, or live)"
+        required: true
+        default: "dev"
+      env_name:
+        description: "Environment name (e.g. develop, staging, or production)"
+        required: true
+        default: "develop"
+      run_test_after:
+        description: "Run test after? (true or false)"
+        required: false
+        default: "false"
+      test_kind:
+        description: "Kind of test (e.g. integration, or load)"
+        required: false
+        default: "integration"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event.inputs.env_name }}
+    env:
+      NAMESPACE: ${{ github.event.inputs.namespace }}
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Deployment Details
+        run: |
+          echo "Environment: ${{ github.event.inputs.env_name }}"
+          echo "Namespace: ${{ env.NAMESPACE }}"
+      - name: Setup Python Environment
+        uses: actions/setup-python@v2
+        with:
+          python-version: "3.9"
+
+      - name: Install Python Dependencies
+        run: |
+          pip install -r requirements.txt
+      
+      - name: Install Docker
+        run: |
+          pip install docker
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Build Dockerfile
+        run: |
+          docker build . -t dev-bantay-api
+          echo "::set-output name=docker_container::dev-bantay-api"
+        id: docker-image
+
+      - name: Login and Create ECR repo
+        run: |
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+          aws ecr describe-repositories --repository-names ${{ steps.docker-image.outputs.docker_container}} || aws ecr create-repository --repository-name ${{ steps.docker-image.outputs.docker_container}} --image-scanning-configuration scanOnPush=true --region ${{ secrets.AWS_REGION }}
+      - name: Set container tag
+        run: |
+          docker images
+          export CURRENT_TIME=$( date +%s%3N )
+          docker tag ${{ steps.docker-image.outputs.docker_container}}:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ steps.docker-image.outputs.docker_container}}:$CURRENT_TIME
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ steps.docker-image.outputs.docker_container}}:$CURRENT_TIME
+          echo "::set-output name=time::$CURRENT_TIME"
+        id: unix-time
+
+      - name: Connect to EKS cluster
+        run: |
+          aws eks --region ${{ secrets.AWS_REGION }} update-kubeconfig --name dev-data-new
+      
+      - name: Update Deployment file
+        run: |
+          chmod +x ./update_deployment_file.sh
+          ./update_deployment_file.sh ${{ steps.unix-time.outputs.time}}
+        shell: bash
+
+      - name: Deploy to kubernetes
+        run: |
+          kubectl apply -f configmap.yaml
+          kubectl apply -f service.yaml
+          kubectl apply -f deployment.yaml

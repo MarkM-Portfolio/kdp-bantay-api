@@ -1,0 +1,12 @@
+pre-commit
+boto3>=1.16.9
+Flask>=1.1.2
+kumuniverse
+python-dotenv
+requests_aws4auth
+slack-sdk
+ddtrace
+
+# dev dependencies
+pytest
+pytest-order

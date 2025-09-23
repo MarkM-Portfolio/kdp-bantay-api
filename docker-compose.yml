@@ -1,0 +1,22 @@
+version: '3.9'
+services:
+  bantay:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    user: root
+    env_file:
+      - ./docker/.env.example
+    volumes:
+      # mount working directory path
+      - ./:/app
+    #      - /var/www/public_html/bin
+    container_name: api-bantay
+    ports:
+      - "8000:8000"
+    networks:
+      - kumu-proxy-network
+networks:
+  kumu-proxy-network:
+    external:
+      name: kumu-network
